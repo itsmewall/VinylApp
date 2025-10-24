@@ -1,188 +1,57 @@
-// server.js (robusto)
-// Requisitos: node >= 16
-// npm i express cookie-parser node-fetch@2 dotenv
+// server.js — hospeda o app (index.html + main.js + style.css)
+// Reqs: node >= 16
+// npm i express morgan dotenv
 
-require('dotenv').config(); // carrega .env no início
-
+require('dotenv').config();
 const express = require('express');
+const morgan = require('morgan');
 const path = require('path');
-const cookie = require('cookie-parser');
-const fetch = require('node-fetch');
 
-const {
-  SPOTIFY_CLIENT_ID,
-  SPOTIFY_CLIENT_SECRET,
-  REDIRECT_URI,
-  PORT = 5050,
-} = process.env;
-
-// Logs iniciais
-console.log('[BOOT] ENV:', {
-  SPOTIFY_CLIENT_ID: SPOTIFY_CLIENT_ID ? '(ok)' : '(faltando)',
-  SPOTIFY_CLIENT_SECRET: SPOTIFY_CLIENT_SECRET ? '(ok)' : '(faltando)',
-  REDIRECT_URI,
-  PORT,
-});
-
-// Guard rails de processo
-process.on('unhandledRejection', (e) => {
-  console.error('[FATAL] unhandledRejection:', e);
-});
-process.on('uncaughtException', (e) => {
-  console.error('[FATAL] uncaughtException:', e);
-});
-
+const PORT = process.env.PORT || 5050;
+const HOST = process.env.HOST || '0.0.0.0';
 const app = express();
-app.use(cookie());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Health e debug
-app.get('/__health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
-app.get('/__config', (req, res) =>
-  res.json({
-    SPOTIFY_CLIENT_ID: !!SPOTIFY_CLIENT_ID,
-    HAS_SECRET: !!SPOTIFY_CLIENT_SECRET,
-    REDIRECT_URI,
-    PORT,
-  })
-);
+app.disable('x-powered-by');
+app.use(morgan('dev'));
 
-// Login → Spotify
-function genState(n = 16) {
-  const c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let s = '';
-  for (let i = 0; i < n; i++) s += c[(Math.random() * c.length) | 0];
-  return s;
-}
-
-app.get('/login', (req, res) => {
-  if (!SPOTIFY_CLIENT_ID || !REDIRECT_URI) {
-    return res
-      .status(500)
-      .send('Faltam SPOTIFY_CLIENT_ID/REDIRECT_URI no .env (veja /__config)');
-  }
-  const scope = [
-    'streaming',
-    'user-read-email',
-    'user-read-private',
-    'user-modify-playback-state',
-    'user-read-playback-state',
-  ].join(' ');
-  const state = genState();
-  res.cookie('spotify_state', state, { httpOnly: true, sameSite: 'lax' });
-
-  const q = new URLSearchParams({
-    response_type: 'code',
-    client_id: SPOTIFY_CLIENT_ID,
-    scope,
-    redirect_uri: REDIRECT_URI,
-    state,
-  });
-  const url = 'https://accounts.spotify.com/authorize?' + q.toString();
-  console.log('[LOGIN] Redirect →', url);
-  res.redirect(url);
+// CSP mínima p/ YouTube IFrame API e thumbs
+app.use((req, res, next) => {
+    res.setHeader(
+    'Content-Security-Policy',
+    [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' https://www.youtube.com https://s.ytimg.com",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: https://i.ytimg.com",
+        "frame-src https://www.youtube.com https://www.youtube-nocookie.com",
+        "media-src 'self' https://*.googlevideo.com https://www.youtube.com blob:",
+        "connect-src 'self' https://www.youtube.com https://s.ytimg.com https://*.googlevideo.com",
+        "worker-src 'self' blob:",
+        "base-uri 'self'"
+    ].join('; ')
+    );
+  next();
 });
 
-// Troca de code por token
-let ACCESS_TOKEN = null;
-let REFRESH_TOKEN = null;
-let EXPIRES_AT = 0;
-
-async function refreshIfNeeded() {
-  if (ACCESS_TOKEN && Date.now() < EXPIRES_AT) return ACCESS_TOKEN;
-  if (!REFRESH_TOKEN) return null;
-
-  const body = new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: REFRESH_TOKEN,
-  });
-
-  const r = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: {
-      Authorization:
-        'Basic ' +
-        Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64'),
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
-  });
-
-  if (!r.ok) {
-    const txt = await r.text();
-    console.error('[TOKEN] Refresh falhou:', txt);
-    return null;
+// cache leve p/ assets
+app.use((req, res, next) => {
+  if (/\.(js|css|png|jpg|svg|ico|woff2?)$/i.test(req.url)) {
+    res.set('Cache-Control', 'public, max-age=86400'); // 1 dia
+  } else {
+    res.set('Cache-Control', 'no-store');
   }
-  const j = await r.json();
-  ACCESS_TOKEN = j.access_token || ACCESS_TOKEN;
-  if (j.refresh_token) REFRESH_TOKEN = j.refresh_token;
-  EXPIRES_AT = Date.now() + ((j.expires_in || 3600) - 60) * 1000;
-  console.log('[TOKEN] Refresh ok, expira em ~', (j.expires_in || 3600), 's');
-  return ACCESS_TOKEN;
-}
-
-app.get('/callback', async (req, res) => {
-  try {
-    const { code } = req.query;
-    if (!code) return res.status(400).send('Callback sem code');
-
-    const body = new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: REDIRECT_URI,
-    });
-
-    const r = await fetch('https://accounts.spotify.com/api/token', {
-      method: 'POST',
-      headers: {
-        Authorization:
-          'Basic ' +
-          Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64'),
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body,
-    });
-
-    if (!r.ok) {
-      const txt = await r.text();
-      console.error('[CALLBACK] Falha token:', txt);
-      return res.status(500).send('Falha ao obter token. Veja logs do servidor.');
-    }
-
-    const j = await r.json();
-    ACCESS_TOKEN = j.access_token;
-    REFRESH_TOKEN = j.refresh_token;
-    EXPIRES_AT = Date.now() + (j.expires_in - 60) * 1000;
-    console.log('[CALLBACK] Token ok. refresh_token? ', !!REFRESH_TOKEN);
-
-    res.redirect('/');
-  } catch (e) {
-    console.error('[CALLBACK] Erro:', e);
-    res.status(500).send('Erro no callback. Veja logs.');
-  }
+  next();
 });
 
-// Endpoint para o front pegar token
-app.get('/token', async (req, res) => {
-  const tok = await refreshIfNeeded();
-  if (!tok) return res.status(401).json({ error: 'no_token' });
-  res.json({ access_token: tok });
+// serve estáticos de /public
+const pub = path.join(__dirname, 'public');
+app.use(express.static(pub, { etag: true }));
+
+// fallback SPA (Express 5: use regex ou '/*', não '*')
+app.get(/.*/, (_req, res) => {
+  res.sendFile(path.join(pub, 'index.html'));
 });
 
-// Static front-end (coloque seu index.html na pasta /public)
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Start com tratamento de porta ocupada
-const server = app
-  .listen(PORT, () => {
-    console.log(`[READY] http://localhost:${PORT}`);
-  })
-  .on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(`[ERRO] Porta ${PORT} em uso. Troque PORT no .env ou libere a porta.`);
-    } else {
-      console.error('[ERRO] listen:', err);
-    }
-    process.exit(1);
-  });
+app.listen(PORT, HOST, () => {
+  console.log(`[READY] http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+});
