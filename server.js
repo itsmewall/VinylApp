@@ -10,7 +10,7 @@ const {
   SPOTIFY_CLIENT_ID,
   SPOTIFY_CLIENT_SECRET,
   REDIRECT_URI,
-  PORT = 5000
+  PORT = 5050
 } = process.env;
 
 const app = express();
