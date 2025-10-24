@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="pt-br">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spotify Web Player + Vinil Local</title>
+<style>
+  :root{--bg:#0f1217;--card:rgba(255,255,255,0.06);--b:#1d2530;--txt:#eef2f6;--mut:#9fb0c0;--acc:#76d39b;--acc2:#4cc2ff;--dang:#ff6673;--bd:rgba(255,255,255,0.12)}
+  *{box-sizing:border-box} html,body{height:100%}
+  body{margin:0;background:
+    radial-gradient(1200px 800px at 15% -10%, #1b2330 0%, transparent 60%),
+    radial-gradient(1200px 800px at 120% 10%, #1a2a22 0%, transparent 60%),
+    linear-gradient(140deg,#0b0e13 0%,#10141a 100%);
+    color:var(--txt); font:15px/1.5 system-ui; display:flex; align-items:center; justify-content:center; padding:24px}
+  .wrap{width:min(1040px,96vw); background:linear-gradient(180deg,var(--card),rgba(255,255,255,0.03));
+    border:1px solid var(--bd); border-radius:14px; box-shadow:0 14px 40px rgba(0,0,0,0.35); overflow:hidden}
+  header{display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--bd)}
+  h1{font-size:18px; margin:0} .sub{margin-left:auto; color:var(--mut); font-size:12px}
+  main{padding:14px 16px}
+  .grid{display:grid; grid-template-columns:1.1fr .9fr; gap:14px}
+  .panel{background:rgba(255,255,255,0.06); border:1px solid var(--bd); border-radius:12px; padding:12px}
+  .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px}
+  .btn{appearance:none; border:none; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer; color:#101418; background:var(--acc)}
+  .btn.sec{background:#253041; color:var(--txt); border:1px solid var(--bd)}
+  .btn.stop{background:var(--dang); color:#220f12}
+  input[type="text"], select{background:#16202b; color:var(--txt); border:1px solid var(--bd); border-radius:10px; padding:8px 10px}
+  input[type="range"]{width:220px; accent-color:var(--acc)}
+  .meter{height:10px; width:100%; background:#131922; border:1px solid var(--bd); border-radius:999px; overflow:hidden}
+  .meter b{display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--acc),var(--acc2))}
+  .scope{width:100%; height:140px; background:#0e141c; border:1px solid var(--bd); border-radius:10px}
+  .pill{font-size:12px; padding:6px 10px; border-radius:999px; border:1px solid var(--bd); background:#1a2330; cursor:pointer}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+</style>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Spotify Web Player + Vinil Local</h1>
+    <div id="status" class="sub">Desconectado</div>
+  </header>
+  <main>
+    <div class="grid">
+      <section class="panel">
+        <div class="row">
+          <button class="btn" id="vinylPlay">Play Vinil</button>
+          <button class="btn stop" id="vinylStop">Stop Vinil</button>
+          <button class="btn sec" id="beep">Beep</button>
+          <span style="color:#9fb0c0;font-size:12px">Se o medidor mexe e não sai som, confira o mixer do sistema</span>
+        </div>
+        <div class="row"><div class="meter"><b id="meter"></b></div></div>
+        <canvas id="scope" class="scope"></canvas>
+      </section>
+
+      <section class="panel">
+        <div class="row">
+          <button class="btn" id="login">Login Spotify</button>
+          <button class="btn sec" id="logout" style="display:none">Sair</button>
+        </div>
+        <div class="row">
+          <input id="url" type="text" placeholder="Cole uma URL ou URI do Spotify">
+          <button class="btn sec" id="play" disabled>Tocar</button>
+        </div>
+        <div class="row">
+          <button class="btn sec" id="prev" disabled>&laquo;</button>
+          <button class="btn" id="toggle" disabled>PLAY</button>
+          <button class="btn sec" id="next" disabled>&raquo;</button>
+          <button class="btn sec" id="transfer" disabled>Transferir p web</button>
+        </div>
+        <div class="row">
+          <img id="cover" alt="" style="width:64px;height:64px;border-radius:8px;border:1px solid var(--bd);object-fit:cover;display:none">
+          <div id="meta" style="font-size:13px;color:#e7ecf2"></div>
+        </div>
+
+        <div class="row" style="margin-top:6px">
+          <label>Volume ruído</label>
+          <input id="vol" type="range" min="0" max="1" step="0.01" value="0.35"><span id="volv">0.35</span>
+        </div>
+        <div class="row">
+          <label>Estalos por segundo</label>
+          <input id="rate" type="range" min="0" max="10" step="0.1" value="2"><span id="ratev">2.0</span>
+        </div>
+        <div class="row">
+          <label>Timbre do hiss</label>
+          <input id="tone" type="range" min="3000" max="14000" step="100" value="8000"><span id="tonev">8000 Hz</span>
+        </div>
+        <div class="row">
+          <label>Rede</label>
+          <select id="hum"><option value="60">60 Hz</option><option value="50">50 Hz</option><option value="0">Off</option></select>
+          <label>Wow</label>
+          <input id="wow" type="range" min="0" max="0.03" step="0.001" value="0.01"><span id="wowv">0.010</span>
+          <label>Flutter</label>
+          <input id="flt" type="range" min="0" max="0.01" step="0.0005" value="0.003"><span id="fltv">0.003</span>
+        </div>
+        <div class="row">
+          <span class="pill" data-p="clean">LP novo</span>
+          <span class="pill" data-p="classic">Clássico</span>
+          <span class="pill" data-p="worn">Gasto</span>
+          <span class="pill" data-p="nohum">Sem hum</span>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+// Helpers UI
+const $ = s => document.querySelector(s);
+function bindRange(id, lab, fmt, cb){
+  const i=$(id), l=$(lab); const up=()=>{ const v=parseFloat(i.value); l.textContent=fmt(v); cb(v); };
+  i.addEventListener('input', up); up();
+}
+
+// Vinyl engine
+let ctx, chain=null, clicksTimer=null, ana, rafMeter, rafScope;
+async function ensureCtx(){ if(!ctx) ctx=new (window.AudioContext||window.webkitAudioContext)(); if(ctx.state!=='running') await ctx.resume(); }
+function pinkBuf(seconds=4){
+  const n=Math.floor(ctx.sampleRate*seconds), d=new Float32Array(n);
+  let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+  for(let i=0;i<n;i++){ const w=Math.random()*2-1;
+    b0=0.99886*b0+0.0555179*w; b1=0.99332*b1+0.0750759*w; b2=0.969*b2+0.153852*w; b3=0.8665*b3+0.3104856*w; b4=0.55*b4+0.5329522*w; b5=-0.7616*b5-0.016898*w;
+    d[i]=b0+b1+b2+b3+b4+b5+b6+0.5362*w; b6=0.115926*w;
+  }
+  let m=0; for(let i=0;i<n;i++){ const a=Math.abs(d[i]); if(a>m)m=a; } if(m>0){ for(let i=0;i<n;i++) d[i]/=m; }
+  const b=ctx.createBuffer(1,n,ctx.sampleRate); b.copyToChannel(d,0); return b;
+}
+function startVinyl(){
+  if(chain) return;
+  const pink=ctx.createBufferSource(); pink.buffer=pinkBuf(4); pink.loop=true;
+  const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=parseFloat($('#tone').value);
+  const shelf=ctx.createBiquadFilter(); shelf.type='highshelf'; shelf.frequency.value=10000; shelf.gain.value=-3;
+  const am=ctx.createGain(); am.gain.value=1.0;
+  const lfo=ctx.createOscillator(), lfo2=ctx.createOscillator(); lfo.frequency.value=0.55; lfo2.frequency.value=6.0;
+  const g1=ctx.createGain(), g2=ctx.createGain(); g1.gain.value=parseFloat($('#wow').value); g2.gain.value=parseFloat($('#flt').value);
+  lfo.connect(g1).connect(am.gain); lfo2.connect(g2).connect(am.gain);
+  const hz=parseFloat($('#hum').value); const hum={osc1:null,osc2:null,g1:null,g2:null};
+  if(hz>0){ hum.osc1=ctx.createOscillator(); hum.osc2=ctx.createOscillator();
+    hum.osc1.frequency.value=hz; hum.osc2.frequency.value=hz*2;
+    hum.g1=ctx.createGain(); hum.g2=ctx.createGain(); hum.g1.gain.value=0.004; hum.g2.gain.value=0.0025;
+    hum.osc1.connect(hum.g1).connect(am); hum.osc2.connect(hum.g2).connect(am);
+  }
+  const master=ctx.createGain(); master.gain.value=parseFloat($('#vol').value);
+  ana=ctx.createAnalyser(); ana.fftSize=1024;
+  pink.connect(lp).connect(shelf).connect(am); am.connect(master).connect(ana).connect(ctx.destination);
+  lfo.start(); lfo2.start(); if(hum.osc1){ hum.osc1.start(); hum.osc2.start(); } pink.start();
+  chain={pink,lp,shelf,am,master,lfo,lfo2,hum,wow:g1,flt:g2};
+  startClicks(); startMeter(); startScope();
+}
+function stopVinyl(){ if(!chain) return; try{ chain.pink.stop(); chain.lfo.stop(); chain.lfo2.stop(); if(chain.hum.osc1){ chain.hum.osc1.stop(); chain.hum.osc2.stop(); } }catch(e){} chain=null; if(clicksTimer) clearInterval(clicksTimer); if(rafMeter) cancelAnimationFrame(rafMeter); if(rafScope) cancelAnimationFrame(rafScope); ana=null; }
+function scheduleClick(when){
+  const dur=0.006+Math.random()*0.010, b=ctx.createBuffer(1,Math.ceil(ctx.sampleRate*dur),ctx.sampleRate), ch=b.getChannelData(0);
+  for(let i=0;i<ch.length;i++){ const env=Math.exp(-6*i/ch.length)*(0.6+0.4*Math.random()); ch[i]=env*(Math.random()<0.5?-1:1); }
+  const src=ctx.createBufferSource(); src.buffer=b; const hp=ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1200; src.connect(hp).connect(chain.am); src.start(when);
+}
+function startClicks(){ clicksTimer=setInterval(()=>{ const r=parseFloat($('#rate').value), now=ctx.currentTime, win=0.5, n=Math.max(0,Math.round(r*win)); for(let k=0;k<n;k++) scheduleClick(now+Math.random()*win); },250); }
+function startMeter(){ const el=$('#meter'), buf=new Uint8Array(ana.fftSize); const draw=()=>{ if(!ana) return; ana.getByteTimeDomainData(buf); let p=0; for(let i=0;i<buf.length;i++){ const v=Math.abs(buf[i]-128)/128; if(v>p)p=v; } el.style.width=Math.min(100,p*220)+'%'; rafMeter=requestAnimationFrame(draw); }; rafMeter=requestAnimationFrame(draw); }
+function startScope(){ const cv=$('#scope'), c=cv.getContext('2d'), data=new Uint8Array(ana.fftSize); const rs=()=>{ const dpr=window.devicePixelRatio||1; cv.width=cv.clientWidth*dpr; cv.height=cv.clientHeight*dpr; c.setTransform(dpr,0,0,dpr,0,0); }; rs(); addEventListener('resize',rs);
+  const draw=()=>{ if(!ana) return; ana.getByteTimeDomainData(data); const w=cv.clientWidth,h=cv.clientHeight; c.clearRect(0,0,w,h); c.strokeStyle='rgba(255,255,255,0.06)'; c.lineWidth=1; for(let x=0;x<w;x+=40){ c.beginPath(); c.moveTo(x,0); c.lineTo(x,h); c.stroke(); } for(let y=0;y<h;y+=28){ c.beginPath(); c.moveTo(0,y); c.lineTo(w,y); c.stroke(); }
+    c.beginPath(); for(let i=0;i<data.length;i++){ const x=i/(data.length-1)*w, y=(data[i]/255)*h; i?c.lineTo(x,y):c.moveTo(x,y); } const g=c.createLinearGradient(0,0,w,0); g.addColorStop(0,'#76d39b'); g.addColorStop(1,'#4cc2ff'); c.strokeStyle=g; c.lineWidth=2; c.stroke(); rafScope=requestAnimationFrame(draw); }; rafScope=requestAnimationFrame(draw); }
+
+// Bind UI vinil
+$('#vinylPlay').onclick = async ()=>{ await ensureCtx(); startVinyl(); };
+$('#vinylStop').onclick = ()=> stopVinyl();
+$('#beep').onclick = async ()=>{ await ensureCtx(); const o=ctx.createOscillator(), g=ctx.createGain(); g.gain.value=0.2; o.frequency.value=880; o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime+0.2); };
+bindRange('#vol','#volv',v=>v.toFixed(2), v=>{ if(chain) chain.master.gain.value=v; });
+bindRange('#rate','#ratev',v=>v.toFixed(1), v=>{});
+bindRange('#tone','#tonev',v=>Math.round(v)+' Hz', v=>{ if(chain) chain.lp.frequency.value=v; });
+bindRange('#wow','#wowv',v=>v.toFixed(3), v=>{ if(chain) chain.wow.gain.value=v; });
+bindRange('#flt','#fltv',v=>v.toFixed(3), v=>{ if(chain) chain.flt.gain.value=v; });
+$('#hum').addEventListener('change', ()=>{ if(!chain) return; if(chain.hum.osc1){ try{ chain.hum.osc1.stop(); chain.hum.osc2.stop(); }catch(e){} } const hz=parseFloat($('#hum').value); if(hz>0){ const o1=ctx.createOscillator(), o2=ctx.createOscillator(), g1=ctx.createGain(), g2=ctx.createGain(); o1.frequency.value=hz; o2.frequency.value=hz*2; g1.gain.value=0.004; g2.gain.value=0.0025; o1.connect(g1).connect(chain.am); o2.connect(g2).connect(chain.am); o1.start(); o2.start(); chain.hum={osc1:o1,osc2:o2,g1,g2}; } else chain.hum={osc1:null,osc2:null,g1:null,g2:null}; });
+document.querySelectorAll('.pill').forEach(p=>p.onclick=()=>{ const n=p.dataset.p;
+  if(n==='clean'){ $('#tone').value=9500; $('#rate').value=0.6; $('#hum').value='0'; $('#wow').value=0.006; $('#flt').value=0.0015; }
+  if(n==='classic'){ $('#tone').value=8000; $('#rate').value=2.0; $('#hum').value='60'; $('#wow').value=0.010; $('#flt').value=0.003; }
+  if(n==='worn'){ $('#tone').value=6500; $('#rate').value=4.0; $('#hum').value='60'; $('#wow').value=0.016; $('#flt').value=0.005; }
+  if(n==='nohum'){ $('#hum').value='0'; }
+  ['#tone','#rate','#wow','#flt'].forEach(id=>$(id).dispatchEvent(new Event('input'))); $('#hum').dispatchEvent(new Event('change'));
+});
+
+// Spotify — front
+let token = null, sdkReady=false, player=null, deviceId=null, isPaused=true;
+
+function updateLoginUI(connected){
+  $('#status').textContent = connected ? 'Conectado' : 'Desconectado';
+  $('#login').style.display = connected ? 'none' : '';
+  $('#logout').style.display = connected ? '' : 'none';
+  $('#play').disabled = !connected;
+  $('#toggle').disabled = !connected;
+  $('#prev').disabled = !connected;
+  $('#next').disabled = !connected;
+  $('#transfer').disabled = !connected;
+}
+
+async function fetchToken(){
+  const r = await fetch('/token');
+  if(!r.ok) return null;
+  const j = await r.json();
+  return j.access_token;
+}
+async function ensureToken(){
+  if(token) return token;
+  token = await fetchToken();
+  return token;
+}
+function loadSDK(){
+  return new Promise((res, rej)=>{
+    if(sdkReady) return res();
+    const s=document.createElement('script');
+    s.src='https://sdk.scdn.co/spotify-player.js';
+    s.onload=()=>res();
+    s.onerror=rej;
+    document.body.appendChild(s);
+    window.onSpotifyWebPlaybackSDKReady = ()=>{ sdkReady = true; };
+  });
+}
+async function initPlayer(){
+  await loadSDK();
+  await ensureToken();
+  if(!token) return;
+
+  player = new Spotify.Player({
+    name: 'Web Player Local',
+    getOAuthToken: cb => cb(token),
+    volume: 0.8
+  });
+
+  player.addListener('ready', ({ device_id }) => {
+    deviceId = device_id;
+    updateLoginUI(true);
+  });
+
+  player.addListener('not_ready', ({ device_id }) => {
+    if(deviceId === device_id) deviceId = null;
+  });
+
+  player.addListener('player_state_changed', s => {
+    if(!s) return;
+    isPaused = s.paused;
+    $('#toggle').textContent = isPaused ? 'PLAY' : 'PAUSE';
+    const t = s.track_window.current_track;
+    if(t){
+      const img = t.album.images?.[0]?.url;
+      if(img){ $('#cover').src = img; $('#cover').style.display = 'block'; }
+      $('#meta').textContent = `${t.name}  —  ${t.artists.map(a=>a.name).join(', ')}`;
+    }
+  });
+
+  await player.connect();
+}
+
+async function transfer(){
+  if(!deviceId) return;
+  await ensureToken();
+  await fetch('https://api.spotify.com/v1/me/player', {
+    method: 'PUT',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_ids: [deviceId], play: false })
+  });
+}
+
+function parseInput(s){
+  s=s.trim();
+  let m = s.match(/open\.spotify\.com\/(track|album|playlist|artist)\/([A-Za-z0-9]+)/);
+  if(m) return {type:m[1], id:m[2]};
+  m = s.match(/^spotify:(track|album|playlist|artist):([A-Za-z0-9]+)$/);
+  if(m) return {type:m[1], id:m[2]};
+  return null;
+}
+
+async function playInput(){
+  await ensureToken();
+  if(!player || !deviceId) await initPlayer();
+  await transfer();
+
+  const p = parseInput($('#url').value);
+  if(!p) { alert('Cole uma URL ou URI válida do Spotify'); return; }
+
+  let body = null;
+  if(p.type === 'track') body = { uris: [`spotify:track:${p.id}`] };
+  else body = { context_uri: `spotify:${p.type}:${p.id}` };
+
+  await fetch('https://api.spotify.com/v1/me/player/play', {
+    method: 'PUT',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+}
+
+// binds spotify
+$('#login').onclick = async () => { location.href = '/login'; };
+$('#logout').onclick = async () => { await fetch('/logout', {method:'POST'}); token=null; updateLoginUI(false); };
+$('#play').onclick = () => playInput();
+$('#transfer').onclick = () => transfer();
+$('#toggle').onclick = () => player && player.togglePlay();
+$('#prev').onclick = () => player && player.previousTrack();
+$('#next').onclick = () => player && player.nextTrack();
+
+// tenta puxar token existente
+(async function boot(){
+  const t = await fetchToken();
+  updateLoginUI(!!t);
+  if(t) { token=t; initPlayer().catch(console.error); }
+})();
+</script>
+<script>
+// fecha tudo ao sair
+addEventListener('pagehide', ()=>{ try{ player && player.disconnect(); }catch(e){} });
+</script>
+</html>
